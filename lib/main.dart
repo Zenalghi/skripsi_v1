@@ -1,10 +1,9 @@
 import 'dart:async';
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 
 import 'models/bms_state.dart';
 import 'screens/main_navigation.dart';
+import 'services/mqtt_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -19,8 +18,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   late final StreamController<BmsState> _controller;
-  Timer? _timer;
-  final Random _random = Random();
+  late MqttService _mqttService;
   BmsState _state = BmsState.initial();
 
   @override
@@ -28,18 +26,29 @@ class _MyAppState extends State<MyApp> {
     super.initState();
     _controller = StreamController<BmsState>.broadcast();
     _controller.add(_state);
-    _timer = Timer.periodic(const Duration(seconds: 2), (_) {
-      _state = _nextState(_state);
-      _controller.add(_state);
-    });
+
+    _mqttService = MqttService(
+      currentState: _state,
+      onStateUpdated: (newState) {
+        _state = newState;
+        _controller.add(_state);
+      },
+    );
+    _mqttService.connect();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _mqttService.client.disconnect();
     _controller.close();
     super.dispose();
   }
+
+  // === FUNGSI REFRESH BARU ===
+  Future<void> _handleRefresh() async {
+    await _mqttService.reconnect();
+  }
+  // ===========================
 
   void _handleRelayToggle(int index, bool value) {
     _state = _state.copyWith(
@@ -49,43 +58,24 @@ class _MyAppState extends State<MyApp> {
             itemIndex == index ? value : _state.relayStates[itemIndex],
       ),
     );
+    _mqttService.currentState = _state;
     _controller.add(_state);
+    _mqttService.publishRelayCommand(index, value);
   }
 
-  BmsState _nextState(BmsState previous) {
-    final nextCellVoltages = previous.cellVoltages
-        .map((voltage) => _clamp(voltage + _jitter(0.01), 3.0, 3.65))
-        .toList(growable: false);
+  void _handleBmsSwitchToggle(String switchName, bool value) {
+    if (switchName == 'charge') _state = _state.copyWith(isCharging: value);
+    if (switchName == 'discharge')
+      _state = _state.copyWith(isDischarging: value);
+    if (switchName == 'balance') _state = _state.copyWith(isBalancing: value);
 
-    final totalVoltage = nextCellVoltages.fold<double>(
-      0,
-      (sum, value) => sum + value,
-    );
-    final baseSoc = _clamp(previous.socEKF + _jitter(0.1), 8.0, 100.0);
-    final baseSoh = _clamp(previous.soh + _jitter(0.04), 75.0, 100.0);
-    final current = _clamp(previous.current + _jitter(0.45), -18.0, 18.0);
-    final tempMos = _clamp(previous.tempMos + _jitter(0.2), 24.0, 58.0);
-    final isBalancing =
-        totalVoltage > 27.1 || (_random.nextBool() && previous.isBalancing);
-
-    return previous.copyWith(
-      socEKF: baseSoc,
-      socCC: _clamp(baseSoc + _jitter(0.25), 0.0, 100.0),
-      socKF: _clamp(baseSoc + _jitter(0.12), 0.0, 100.0),
-      soh: baseSoh,
-      totalVoltage: totalVoltage,
-      current: current,
-      power: totalVoltage * current,
-      tempMos: tempMos,
-      cellVoltages: nextCellVoltages,
-      isBalancing: isBalancing,
-    );
+    _mqttService.currentState = _state;
+    _controller.add(_state);
+    _mqttService.publishBmsSwitchCommand(switchName, value);
   }
 
-  double _jitter(double delta) => (_random.nextDouble() * 2 - 1) * delta;
-
-  double _clamp(double value, double min, double max) {
-    return value.clamp(min, max).toDouble();
+  void _handleBmsNumberSubmit(String settingName, String value) {
+    _mqttService.publishBmsNumberCommand(settingName, value);
   }
 
   @override
@@ -93,7 +83,13 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'SMART BMS IoT',
-      theme: ThemeData.dark(useMaterial3: true).copyWith(
+      scrollBehavior: const MaterialScrollBehavior().copyWith(
+        physics: const BouncingScrollPhysics(),
+      ),
+      theme: ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        fontFamily: 'Poppins',
         scaffoldBackgroundColor: const Color(0xFF121212),
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF00BCD4),
@@ -105,17 +101,13 @@ class _MyAppState extends State<MyApp> {
           foregroundColor: Colors.white,
           elevation: 0,
         ),
-        cardTheme: CardThemeData(
-          color: const Color(0xFF1A1A1A),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-        ),
       ),
       home: MainNavigation(
         stateStream: _controller.stream,
         onRelayToggle: _handleRelayToggle,
+        onBmsSwitchToggle: _handleBmsSwitchToggle,
+        onBmsNumberSubmit: _handleBmsNumberSubmit,
+        onRefresh: _handleRefresh,
       ),
     );
   }

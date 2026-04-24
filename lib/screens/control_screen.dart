@@ -16,17 +16,18 @@ class ControlScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionHeader(
+          const _SectionHeader(
             title: 'Hardware Control',
-            subtitle: 'Relay outputs and connectivity status',
+            subtitle: 'Relay outputs and real-time connectivity status',
           ),
           const SizedBox(height: 16),
-          _ConnectivityRow(state: state),
-          const SizedBox(height: 16),
+
+          // Card Kontrol Relay
           RelayControlCard(
             relayStates: state.relayStates,
             onRelayChanged: onRelayToggle,
@@ -62,55 +63,6 @@ class _SectionHeader extends StatelessWidget {
           ).textTheme.bodyMedium?.copyWith(color: Colors.white70),
         ),
       ],
-    );
-  }
-}
-
-class _ConnectivityRow extends StatelessWidget {
-  const _ConnectivityRow({required this.state});
-
-  final BmsState state;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: const [
-        Expanded(
-          child: _StatusPill(label: 'MQTT OK', color: Color(0xFF2E7D32)),
-        ),
-        SizedBox(width: 12),
-        Expanded(
-          child: _StatusPill(label: 'FB SYNC', color: Color(0xFFFFC107)),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Center(
-        child: Text(
-          label,
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-            color: color,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
     );
   }
 }
